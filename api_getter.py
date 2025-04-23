@@ -22,6 +22,7 @@ def preprocess_data(data):
                 name= item.get('productName'),
                 image_url= item.get('avatar'),
             )
+            processed_item.price = processed_item.price * processed_item.quantity
             # processed_item.datetime = datetime.fromisoformat(processed_item.datetime).strftime("%B %d, %Y at %I:%M %p (%Z%z)")
             processed_data.add_goods(processed_item)
     return processed_data
