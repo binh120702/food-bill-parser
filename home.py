@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from ultils import extract_food_bills, get_client
-from good_list import GoodsList
+from good_list import GoodsList, Goods
 from api_getter import get_api_data
 import pandas as pd
 import time
@@ -169,12 +169,27 @@ def main():
                 ),
             }
         )
+        # save the edited data to the goods list
+        if st.button("Save Changes"):
+            old_goods_list = goods_list.goods.copy()
+            goods_list.goods = []
+            for index, row in edited_df.iterrows():
+                # only take the person_in_charge field from the edited_df, others are from the old goods list
+                good = Goods(
+                    name = old_goods_list[index].name,
+                    quantity = old_goods_list[index].quantity,
+                    price = old_goods_list[index].price,
+                    person_in_charge = row['person_in_charge'],
+                    datetime = old_goods_list[index].datetime,
+                    image_url = old_goods_list[index].image_url,
+                )
+                goods_list.add_goods(good)
+            st.success("Changes saved!")
      
     # calculate the total price of the goods for each participant: shared, me, steve
-    if st.button("Calculate Total"):
-        total_price = edited_df.groupby('person_in_charge')['price'].sum()
-        st.write("Total price for each participant:")
-        st.write(total_price)
+    total_price = edited_df.groupby('person_in_charge')['price'].sum()
+    st.write("Total price for each participant:")
+    st.write(total_price)
     if st.button("List all goods by participant"):
         total_price = edited_df.groupby('person_in_charge')['name'].apply(lambda x: '___'.join(x)).reset_index()
         st.write("List of all goods by participant:")
