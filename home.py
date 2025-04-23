@@ -3,9 +3,11 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ct
 
 from ultils import extract_food_bills, get_client
 from good_list import GoodsList
+from api_getter import get_api_data
 import pandas as pd
 import time
 from threading import Thread
+import datetime
 
 import os
 from dotenv import load_dotenv
@@ -49,9 +51,14 @@ def parse_and_add_data(bill_text, client):
     goods_list.add_a_goods_list(parsed_goods_list)
     return True
 
+def add_data_to_goods_list(data):
+    goods_list = get_goods_list()
+    goods_list.add_a_goods_list(data)
+    return True
+
 def main():
 
-    st.header("🍔 Pi Food Bill Parser")
+    st.header("🍔 Pi Food Bill")
     # Initialize session state for the bill queue
     if 'bill_queue' not in st.session_state:
         st.session_state.bill_queue = []
@@ -66,78 +73,102 @@ def main():
     
     with st.sidebar:
         key = st.text_input("OpenAI API Key", type="password")
+        headers = st.text_area("Headers", height=300, value="")
         if key:
             st.session_state["OPENAI_API_KEY"] = key
-    
-    col1, col2 = st.columns(2)
-    # Two parts: add bills to the queue and then a button to parse them
-    # Text area for pasting the bill text
-    
-    # Button to parse the bill text
-    with col2:
-        if st.button("Parse Bill(s)"):
-            if not "OPENAI_API_KEY" in st.session_state:
-                st.error("Please enter your OpenAI API key.")
-                return
-            if len(st.session_state.bill_queue) > 0:
-                try:
-                    threads = []
-                    for bill in st.session_state.bill_queue:
-                        client = get_client(api_key=st.session_state["OPENAI_API_KEY"])
-                        worker_thread = WorkerThread(parse_and_add_data, bill, client, st.container())
-                        threads.append(worker_thread)
-                        
-                    for thread in threads:
-                        add_script_run_ctx(thread, get_script_run_ctx())
-                        thread.start()
-                    for thread in threads:
-                        thread.join()
-                    
-                    # Clear the queue after processing
-                    st.session_state.bill_queue.clear()
-                    st.write("All bills have been parsed and added to the list!")
-                    
-                except Exception as e:
-                    st.error(f"An error occurred while parsing the bill: {e}")
-            else:
-                st.warning("Please paste the bill text before parsing.")
-    
-    with col1:
-        bill_text = st.text_area("Paste your bill text here:", height=300)
-
-        st.write("You can paste the bill text here. Make sure to format it correctly.")
-    
-        if st.button("Add Bill to Queue"):
-            if bill_text:
-                st.session_state.add_bill_to_queue(bill_text)
-                st.toast("Bill added to queue!")
-            else:
-                st.warning("Please paste the bill text before adding to queue.")
+    tab1, tab2 = st.tabs(["Bill API Getter", "Bill Parser"])
+    with tab2:
+        col1, col2 = st.columns(2)
+        # Two parts: add bills to the queue and then a button to parse them
+        # Text area for pasting the bill text
         
-        st.write(f"Current bills in queue: {len(st.session_state.bill_queue)}")
+        # Button to parse the bill text
+        with col2:
+            if st.button("Parse Bill(s)"):
+                if not "OPENAI_API_KEY" in st.session_state:
+                    st.error("Please enter your OpenAI API key.")
+                    return
+                if len(st.session_state.bill_queue) > 0:
+                    try:
+                        threads = []
+                        for bill in st.session_state.bill_queue:
+                            client = get_client(api_key=st.session_state["OPENAI_API_KEY"])
+                            worker_thread = WorkerThread(parse_and_add_data, bill, client, st.container())
+                            threads.append(worker_thread)
+                            
+                        for thread in threads:
+                            add_script_run_ctx(thread, get_script_run_ctx())
+                            thread.start()
+                        for thread in threads:
+                            thread.join()
+                        
+                        # Clear the queue after processing
+                        st.session_state.bill_queue.clear()
+                        st.write("All bills have been parsed and added to the list!")
+                        
+                    except Exception as e:
+                        st.error(f"An error occurred while parsing the bill: {e}")
+                else:
+                    st.warning("Please paste the bill text before parsing.")
+        
+        with col1:
+            bill_text = st.text_area("Paste your bill text here:", height=300)
+
+            st.write("You can paste the bill text here. Make sure to format it correctly.")
+        
+            if st.button("Add Bill to Queue"):
+                if bill_text:
+                    st.session_state.add_bill_to_queue(bill_text)
+                    st.toast("Bill added to queue!")
+                else:
+                    st.warning("Please paste the bill text before adding to queue.")
+            
+            st.write(f"Current bills in queue: {len(st.session_state.bill_queue)}")
     
-    
-    
-    
+    with tab1:
+        st.write("This is the API getter tab. You can use it to get the bills from the API.")
+        if headers:
+            response = None
+            start_date = st.date_input("Bill from date?", datetime.datetime.now())
+            start_time = st.time_input("Bill from time?", datetime.time(0, 0))
+            valid_date = datetime.datetime.combine(start_date, start_time)
+            if st.button("Get API Data"):
+                response = get_api_data(headers=headers, valid_date=valid_date)
+                st.write("API response:")
+                st.write(response.to_dict())
+            if st.button("Add to Goods List"):
+                add_data_to_goods_list(get_api_data(headers=headers, valid_date=valid_date))
+                st.success("Data added to goods list!")
+        else:
+            st.warning("Please enter the headers before getting the API data.")
     st.subheader("Parsed Bill Data:")
     
     goods_list = get_goods_list()
-    
-    fields = ['datetime', 'quantity', 'price', 'name', 'person_in_charge']
+    fields = ['datetime', 'quantity', 'price', 'name', 'person_in_charge', 'image_url']
     df = pd.DataFrame([{fn : getattr(good, fn) for fn in fields} for good in goods_list.goods])
-    edited_df = st.data_editor(
-        df,
-        use_container_width=True,
-        hide_index=False,
-        num_rows="dynamic",
-        column_config={
-            "person_in_charge": st.column_config.SelectboxColumn(
-                "Person in charge?",
-                options=["shared", "me", 'steve'],
-                help="Check if the goods are shared.",
-            ),
-        }
-    )
+    if df.empty:
+        st.write("No goods found.")
+    else:
+        df['datetime'] = df['datetime'].apply(
+            lambda x: datetime.datetime.fromisoformat(x).replace(tzinfo=None).strftime("%B %d, %Y at %I:%M %p")
+        )
+        edited_df = st.data_editor(
+            df,
+            use_container_width=True,
+            hide_index=False,
+            num_rows="dynamic",
+            column_config={
+                "person_in_charge": st.column_config.SelectboxColumn(
+                    "Person in charge?",
+                    options=["shared", "me", 'steve'],
+                    help="Check if the goods are shared.",
+                ),
+                "image_url": st.column_config.ImageColumn(
+                    "Image",
+                    help="Image of the goods.",
+                ),
+            }
+        )
      
     # calculate the total price of the goods for each participant: shared, me, steve
     if st.button("Calculate Total"):
